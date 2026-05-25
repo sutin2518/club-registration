@@ -148,7 +148,7 @@
                 <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                   <i class="fas fa-search text-gray-400"></i>
                 </div>
-                <input type="text" id="studentSearchClub" class="form-input block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all" placeholder="ค้นหาชื่อชุมนุม, ครูที่ปรึกษา, หรือเงื่อนไข (เช่น ม.1)..." onkeyup="filterStudentClubs()">
+                <input type="text" id="studentSearchClub" class="form-input block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all" placeholder="ค้นหาชื่อชุมนุม, ครูที่ปรึกษา..." onkeyup="filterStudentClubs()">
               </div>
             </div>
 
@@ -182,7 +182,7 @@
     let currentStudent = null;
     let globalSystemSettings = {};
 
-    const FIREBASE_BASE_URL = "https://club-registration-system-197a8-default-rtdb.asia-southeast1.firebasedatabase.app";
+    // 📌 ดึงข้อมูลจาก GAS 100% ลบ Firebase ออกเรียบร้อย
     const GAS_API_URL = "https://script.google.com/macros/s/AKfycbydBKOQxweJPdqoAEc_6xGi-z1daBzL0ZVNH1zZhlZQVsUcVsn-Yqeavvnsrb4XIXU/exec";
 
     document.addEventListener("DOMContentLoaded", function() {
@@ -223,10 +223,14 @@
       loadPublicClubs();
     }
 
+    // 🔄 โหลดข้อมูลตารางสาธารณะจาก GAS (ชีตข้อมูลชุมนุม)
     function loadPublicClubs() {
-      document.getElementById('publicClubTableBody').innerHTML = '<tr><td colspan="7" class="text-center p-4 text-sm text-gray-500">กำลังดึงข้อมูลสารสนเทศชุมนุมล่าสุด...</td></tr>';
+      document.getElementById('publicClubTableBody').innerHTML = '<tr><td colspan="7" class="text-center p-4 text-sm text-gray-500">กำลังดึงข้อมูลสารสนเทศชุมนุมล่าสุดจากระบบ...</td></tr>';
       
-      fetch(`${FIREBASE_BASE_URL}/public_dashboard/clubs.json`)
+      fetch(GAS_API_URL, {
+        method: "POST",
+        body: JSON.stringify({ action: "getClubs" })
+      })
         .then(res => res.json())
         .then(clubs => {
           let html = '';
@@ -234,7 +238,7 @@
           
           let rowNum = 1;
           clubList.forEach(c => {
-            let capacity = parseInt(c["จำนวนที่รับได้"]) || 0;
+            let capacity = parseInt(c.capacity) || 0;
             let registered = parseInt(c.registered) || 0;
             let isFull = registered >= capacity;
             let statusBadge = isFull 
@@ -243,12 +247,12 @@
 
             html += `<tr class="hover:bg-gray-50 transition-colors">
               <td class="px-3 py-3 text-center font-bold text-gray-500 bg-gray-50/50">${rowNum++}</td>
-              <td class="px-4 py-3 font-bold text-slate-800 text-base">${c["ชื่อชุมนุม"] || "-"}</td>
+              <td class="px-4 py-3 font-bold text-slate-800 text-base">${c.name || "-"}</td>
               <td class="px-4 py-3 text-sm text-gray-600">
-                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-indigo-50 text-indigo-700 mb-1">${c["กลุ่มสาระ"] || "-"}</span><br>
-                👤 ครูผู้สอน: ${c["ครูที่ปรึกษา"] || "-"} <br>📍 สถานที่: ${c["สถานที่เรียน"] || "-"}
+                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-indigo-50 text-indigo-700 mb-1">${c.department || "-"}</span><br>
+                👤 ครูผู้สอน: ${c.advisor || "-"} <br>📍 สถานที่: ${c.location || "-"}
               </td>
-              <td class="px-4 py-3 text-center text-sm"><span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">${c["เงื่อนไขรับสมัคร"] || "ทุกระดับชั้น"}</span></td>
+              <td class="px-4 py-3 text-center text-sm"><span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">${c.condition || "ทุกระดับชั้น"}</span></td>
               <td class="px-4 py-3 text-center font-bold text-gray-700">${capacity}</td>
               <td class="px-4 py-3 text-center font-bold text-blue-600">${registered}</td>
               <td class="px-4 py-3 text-center">${statusBadge}</td>
@@ -347,16 +351,25 @@
       box.className = "p-4 rounded-xl border font-semibold block";
       
       if(reg.registered) {
-        box.classList.add('bg-green-50', 'border-green-200', 'text-green-800');
-        box.innerHTML = `<h5 class="font-bold text-base flex items-center gap-1">✓ ลงทะเบียนสำเร็จ</h5>
-                         <p class="text-sm font-normal mt-2">ชุมนุม: <strong class="text-green-900">${reg.clubName}</strong></p>
-                         <button class="mt-4 w-full bg-red-600 hover:bg-red-700 text-white text-xs font-bold py-2 rounded-lg transition-all" onclick="cancelMyRegistration()">❌ ยกเลิกและเปลี่ยนชุมนุม</button>`;
+        // หากมีสถานะ waiting จะแสดงข้อความกำลังต่อคิว หรือสถานะอื่น ๆ ตาม GAS
+        if (reg.status === "waiting") {
+          box.classList.add('bg-blue-50', 'border-blue-200', 'text-blue-800');
+          box.innerHTML = `<h5 class="font-bold text-base flex items-center gap-1">🕒 กำลังต่อคิวรอระบบ...</h5>
+                           <p class="text-sm font-normal mt-2">ชุมนุม: <strong class="text-blue-900">${reg.clubName}</strong></p>
+                           <p class="text-xs mt-1 text-gray-500">กรุณารอสักครู่ แล้วกดรีเฟรชหน้าเว็บ</p>`;
+        } else {
+          box.classList.add('bg-green-50', 'border-green-200', 'text-green-800');
+          box.innerHTML = `<h5 class="font-bold text-base flex items-center gap-1">✓ ลงทะเบียนสำเร็จ</h5>
+                           <p class="text-sm font-normal mt-2">ชุมนุม: <strong class="text-green-900">${reg.clubName}</strong></p>
+                           <button class="mt-4 w-full bg-red-600 hover:bg-red-700 text-white text-xs font-bold py-2 rounded-lg transition-all" onclick="cancelMyRegistration()">❌ ยกเลิกและเปลี่ยนชุมนุม</button>`;
+        }
       } else {
         box.classList.add('bg-yellow-50', 'border-yellow-200', 'text-yellow-800');
-        box.innerHTML = `<h5 class="font-bold text-base">⚠️ สถานะปัจจุบัน</h5><p class="text-sm font-normal mt-1">คุณยังไม่มีชุมนุมในภาคเรียนนี้ กรุณากดปุ่มสมัครชุมนุมที่ต้องการ</p>`;
+        box.innerHTML = `<h5 class="font-bold text-base">⚠️ สถานะปัจจุบัน</h5><p class="text-sm font-normal mt-1">${reg.reason ? reg.reason : 'คุณยังไม่มีชุมนุมในภาคเรียนนี้ กรุณากดปุ่มสมัครชุมนุมที่ต้องการ'}</p>`;
       }
     }
 
+    // 🔄 โหลดรายการชุมนุมสำหรับนักเรียนจาก GAS
     function loadStudentClubs() {
       let isSystemOpen = false;
       let systemCloseMsg = "ระบบปิดรับสมัคร";
@@ -377,7 +390,10 @@
         systemCloseMsg = "ผู้ดูแลระบบปิดการลงทะเบียน";
       }
 
-      fetch(`${FIREBASE_BASE_URL}/public_dashboard/clubs.json`)
+      fetch(GAS_API_URL, {
+        method: "POST",
+        body: JSON.stringify({ action: "getClubs" })
+      })
         .then(res => res.json())
         .then(clubs => {
           let html = '';
@@ -385,10 +401,8 @@
           
           let rowNum = 1;
           clubList.forEach(c => {
-            let cond = c["เงื่อนไขรับสมัคร"] || "ทุกระดับชั้น";
-            
-            // ยกเลิกการกรองเงื่อนไข แสดงผลทุกชุมนุม
-            let capacity = parseInt(c["จำนวนที่รับได้"]) || 0;
+            let cond = c.condition || "ทุกระดับชั้น";
+            let capacity = parseInt(c.capacity) || 0;
             let registered = parseInt(c.registered) || 0;
             let isFull = registered >= capacity;
             
@@ -409,14 +423,14 @@
             html += `<tr class="hover:bg-gray-50 transition-colors">
               <td class="px-3 py-3 text-center font-bold text-gray-500 bg-gray-50/50">${rowNum++}</td>
               <td class="px-4 py-3">
-                <div class="font-bold text-slate-800">${c["ชื่อชุมนุม"] || "-"}</div>
-                <div class="text-xs text-indigo-600 font-semibold">${c["กลุ่มสาระ"] || "-"} | เงื่อนไข: <span class="text-rose-600">${cond}</span></div>
+                <div class="font-bold text-slate-800">${c.name || "-"}</div>
+                <div class="text-xs text-indigo-600 font-semibold">${c.department || "-"} | เงื่อนไข: <span class="text-rose-600">${cond}</span></div>
               </td>
-              <td class="px-4 py-3 text-xs text-gray-600">👤 ${c["ครูที่ปรึกษา"] || "-"}<br>📍 ${c["สถานที่เรียน"] || "-"}</td>
+              <td class="px-4 py-3 text-xs text-gray-600">👤 ${c.advisor || "-"}<br>📍 ${c.location || "-"}</td>
               <td class="px-4 py-3 text-center font-bold text-gray-700">${capacity}</td>
               <td class="px-4 py-3 text-center font-bold text-blue-600">${registered}</td>
               <td class="px-4 py-3 text-center">
-                <button class="${btnClass} text-xs font-bold px-3 py-1.5 rounded-lg shadow-sm transition-all" ${disabledAttr} onclick="requestJoinClub('${c["ชื่อชุมนุม"]}')">${btnText}</button>
+                <button class="${btnClass} text-xs font-bold px-3 py-1.5 rounded-lg shadow-sm transition-all" ${disabledAttr} onclick="requestJoinClub('${c.name}')">${btnText}</button>
               </td>
             </tr>`;
           });
@@ -425,14 +439,13 @@
         .catch(err => console.error("โหลดรายการชุมนุมของนักเรียนล้มเหลว:", err));
     }
 
-    // ฟังก์ชันใหม่: กรองข้อมูลค้นหาในตารางของนักเรียนแบบเรียลไทม์
     function filterStudentClubs() {
       var input = document.getElementById('studentSearchClub').value.toLowerCase().trim();
       var tbody = document.getElementById('studentClubTableBody');
       var rows = tbody.getElementsByTagName('tr');
       
       for (var i = 0; i < rows.length; i++) {
-        if (rows[i].cells.length < 6) continue; // ข้ามบรรทัดที่แจ้งเตือนว่า "ไม่มีข้อมูล"
+        if (rows[i].cells.length < 6) continue;
         
         var rowText = (rows[i].textContent || rows[i].innerText).toLowerCase();
         if (rowText.includes(input)) {
@@ -443,6 +456,7 @@
       }
     }
 
+    // 📤 ฟังก์ชันส่งคิวเข้า GAS 
     function requestJoinClub(clubName) {
       Swal.fire({
         title: 'ยืนยันการเลือกชุมนุม?',
@@ -456,30 +470,34 @@
           Swal.fire({ title: 'ระบบกำลังนำส่งคิว...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
           
           let payload = { 
+            action: "joinClub", // เปลี่ยน Action เป็นของ GAS 
             studentId: currentStudent.studentId, 
             name: currentStudent.name, 
             level: currentStudent.level, 
             room: currentStudent.room, 
             no: currentStudent.no, 
-            clubName: clubName,
-            timestamp: new Date().getTime() 
+            clubName: clubName
           };
           
-          fetch(`${FIREBASE_BASE_URL}/queue/${currentStudent.studentId}.json`, {
-            method: 'PUT',
+          fetch(GAS_API_URL, {
+            method: 'POST',
             body: JSON.stringify(payload)
           })
           .then(response => response.json())
           .then(data => {
-            Swal.fire({
-              title: 'ส่งใบสมัครเข้าคิวสำเร็จ! 📝',
-              html: 'ข้อมูลถูกส่งเข้าคิวกลางเรียบร้อยแล้ว<br><br><span class="text-danger font-bold">กรุณารอระบบประมวลผลประมาณ 1-3 นาที<br>และให้กดปุ่มเช็กสถานะใหม่อีกครั้ง</span>',
-              icon: 'success',
-              confirmButtonColor: '#2563eb',
-              confirmButtonText: 'รับทราบ'
-            }).then(() => {
-              refreshStudentData();
-            });
+            if (data.success) {
+              Swal.fire({
+                title: 'ส่งใบสมัครเข้าคิวสำเร็จ! 📝',
+                html: 'ข้อมูลถูกส่งเข้าคิวกลางเรียบร้อยแล้ว<br><br><span class="text-danger font-bold">กรุณารอระบบประมวลผลประมาณ 1-3 นาที<br>และให้กดปุ่มเช็กสถานะใหม่อีกครั้ง</span>',
+                icon: 'success',
+                confirmButtonColor: '#2563eb',
+                confirmButtonText: 'รับทราบ'
+              }).then(() => {
+                refreshStudentData();
+              });
+            } else {
+              Swal.fire('เกิดข้อผิดพลาด', data.message, 'error');
+            }
           })
           .catch(error => {
             console.error(error);
@@ -507,13 +525,17 @@
           })
           .then(res => res.json())
           .then(out => {
-            Swal.fire('สำเร็จ', out.message, 'success').then(() => {
-              refreshStudentData();
-            });
+            if (out.success || out.message) {
+              Swal.fire('สำเร็จ', out.message || "ยกเลิกสิทธิ์สำเร็จ", 'success').then(() => {
+                refreshStudentData();
+              });
+            } else {
+              Swal.fire('เกิดข้อผิดพลาด', 'ไม่สามารถยกเลิกได้', 'error');
+            }
           })
           .catch(err => {
             Swal.close();
-            Swal.fire('เกิดข้อผิดพลาด', 'ไม่สามารถยกเลิกได้ในขณะนี้: ' + err, 'error');
+            Swal.fire('เกิดข้อผิดพลาด', 'ไม่สามารถเชื่อมต่อระบบได้: ' + err, 'error');
           });
         }
       });
